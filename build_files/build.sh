@@ -28,21 +28,39 @@ rm -f /tmp/goxlr.rpm
 # globally so it starts with the graphical session instead.
 systemctl --global enable goxlr-daemon.service
 
-### Deliberately NOT installed: the old Monado dependency set
+### VR: Monado (OpenXR) + xrizer (OpenVR on top of OpenXR)
 #
-# boost, libuvc, onnxruntime, opencv, opencv-video, openhmd, openvr-api and
-# librealsense were all layered by hand as dependencies for a native Monado
-# build that never happened -- Monado only ever ran from an AppImage (bundling
-# its own deps, and since deleted). rpm -q --whatrequires came back empty for
-# every one of them, so nothing on the system pulls them in.
+# Fedora packages Monado, so the old hand-layered dependency set for a native
+# build that never happened -- boost, libuvc, onnxruntime, opencv,
+# opencv-video, openhmd, openvr-api, librealsense -- stays dropped. Nothing
+# required any of them (rpm -q --whatrequires was empty). librealsense is moot
+# anyway: the "Valve Software 3D Camera" here is the Index's own stereo pair.
 #
-# librealsense is dropped too: the "Valve Software 3D Camera" on this machine is
-# the Index's onboard stereo pair, not a RealSense, so its udev rules are moot.
+# xr-hardware carries the udev rules that give the seat user access to HMDs
+# and controllers, which is why this lives in the image and not in nix.
 #
-# If native Monado gets another go, it belongs in a per-project nix devshell,
-# not in the image:
-#   nixpkgs#boost   nixpkgs#libuvc  nixpkgs#onnxruntime  nixpkgs#opencv
-#   nixpkgs#openhmd nixpkgs#openvr  nixpkgs#librealsense
+# Which runtime is active is per-user state; `ujust vr-monado` and
+# `ujust vr-steamvr` switch it. Nothing here makes Monado the default.
+dnf5 install -y monado xr-hardware
+
+# On AMD, Monado's compositor needs a high-priority GPU queue, which requires
+# CAP_SYS_NICE; without it frames drop under load. Fedora's RPM does not set it.
+setcap CAP_SYS_NICE=eip /usr/bin/monado-service
+getcap /usr/bin/monado-service | grep -q cap_sys_nice
+
+# xrizer is not packaged for Fedora; pinned upstream release, as with goxlr.
+# Used over Fedora's opencomposite, which upstream no longer maintains.
+# Bump by hand: neither dependabot nor renovate watches it.
+XRIZER_VER=0.6
+XRIZER_SHA=9b2105433e48a20f789e20a14113dbd98650afd116bd232419725a4438dd2149
+curl -fsSL -o /tmp/xrizer.zip \
+  "https://github.com/Supreeeme/xrizer/releases/download/v${XRIZER_VER}/xrizer-v${XRIZER_VER}.zip"
+echo "${XRIZER_SHA}  /tmp/xrizer.zip" | sha256sum -c -
+unzip -q /tmp/xrizer.zip -d /tmp/xrizer
+mkdir -p /usr/lib64/xrizer
+cp -a "/tmp/xrizer/xrizer-v${XRIZER_VER}/." /usr/lib64/xrizer/
+test -f /usr/lib64/xrizer/bin/linux64/vrclient.so
+rm -rf /tmp/xrizer /tmp/xrizer.zip
 
 ### Nix package manager
 #

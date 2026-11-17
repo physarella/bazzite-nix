@@ -33,6 +33,21 @@ polkit helper) and `goxlr-utility` (udev rules, pinned to an upstream GitHub
 RPM by sha256). Everything previously layered with `rpm-ostree` is either
 included here or deliberately dropped — `build.sh` records which and why.
 
+**VR: Monado + xrizer.** `monado` and `xr-hardware` from Fedora, with
+`CAP_SYS_NICE` set on `monado-service`. Also included is
+[xrizer](https://github.com/Supreeeme/xrizer), which lets OpenVR games run on
+OpenXR, pinned by sha256. Steam games see Monado through
+`PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1`, set for the whole session in
+`environment.d`. Monado tracks the Index through SteamVR's lighthouse driver,
+so SteamVR must be installed and Room Setup run once. SteamVR stays the default
+runtime; switch per user:
+
+```bash
+ujust vr-monado    # Monado for OpenXR, xrizer for OpenVR; starts monado.socket
+ujust vr-steamvr   # back to SteamVR
+ujust vr-status
+```
+
 **`ujust clean-home`.** Trash and caches older than 30 days, plus nix store GC.
 Manual by design: the rules live outside every `systemd-tmpfiles` search path,
 because the user instance of `systemd-tmpfiles-clean.timer` is enabled by

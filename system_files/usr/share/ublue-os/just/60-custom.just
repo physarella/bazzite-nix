@@ -74,3 +74,72 @@ home-report:
         :                     sprintf("%.0fK", s/1024)
       printf "%-26s %9s  %8d files  %s\n", $4, h, $3, strftime("%Y-%m-%d", $1)
     }'
+
+OPENXR_ACTIVE := "$HOME/.config/openxr/1/active_runtime.json"
+OPENVR_PATHS := "$HOME/.config/openvr/openvrpaths.vrpath"
+STEAMVR_DIR := "$HOME/.local/share/Steam/steamapps/common/SteamVR"
+
+# Make Monado the OpenXR runtime and xrizer the OpenVR runtime
+vr-monado:
+    #!/usr/bin/bash
+    set -euo pipefail
+    # Steam's container sees $HOME but not the host's /usr, and a symlink into
+    # /usr would resolve against the container's own /usr. So xrizer needs a
+    # real copy here; refreshed on every run so an image bump reaches it.
+    xrizer="$HOME/.local/share/xrizer"
+    rm -rf "$xrizer"
+    cp -r /usr/lib64/xrizer "$xrizer"
+
+    mkdir -p "$(dirname "{{ OPENXR_ACTIVE }}")"
+    ln -sfn /usr/share/openxr/1/openxr_monado.json "{{ OPENXR_ACTIVE }}"
+
+    just --justfile "{{ justfile() }}" _vr-set-openvr-runtime "$xrizer"
+    # SteamVR rewrites this file to point back at itself whenever it starts,
+    # including for Room Setup. Read-only keeps xrizer in place.
+    chmod 444 "{{ OPENVR_PATHS }}"
+
+    systemctl --user enable --now monado.socket
+    echo ":: Monado + xrizer active. Restart Steam if it is running."
+
+# Make SteamVR the OpenXR and OpenVR runtime again
+vr-steamvr:
+    #!/usr/bin/bash
+    set -euo pipefail
+    if [ ! -f "{{ STEAMVR_DIR }}/steamxr_linux64.json" ]; then
+        echo "SteamVR not found at {{ STEAMVR_DIR }}; install it from Steam first." >&2
+        exit 1
+    fi
+    systemctl --user disable --now monado.socket monado.service || true
+
+    mkdir -p "$(dirname "{{ OPENXR_ACTIVE }}")"
+    ln -sfn "{{ STEAMVR_DIR }}/steamxr_linux64.json" "{{ OPENXR_ACTIVE }}"
+
+    [ -f "{{ OPENVR_PATHS }}" ] && chmod 644 "{{ OPENVR_PATHS }}"
+    just --justfile "{{ justfile() }}" _vr-set-openvr-runtime "{{ STEAMVR_DIR }}"
+    echo ":: SteamVR active. Restart Steam if it is running."
+
+# Show which OpenXR and OpenVR runtimes are active
+vr-status:
+    #!/usr/bin/bash
+    set -uo pipefail
+    echo "OpenXR: $(readlink -f "{{ OPENXR_ACTIVE }}" 2>/dev/null || echo 'none (system default)')"
+    echo "OpenVR: $(jq -r '.runtime[0] // "none"' "{{ OPENVR_PATHS }}" 2>/dev/null || echo none)"
+    echo "monado.socket: $(systemctl --user is-active monado.socket)"
+
+# Point openvrpaths.vrpath at one runtime, keeping SteamVR's config and log paths
+_vr-set-openvr-runtime runtime:
+    #!/usr/bin/bash
+    set -euo pipefail
+    paths="{{ OPENVR_PATHS }}"
+    steam="$HOME/.local/share/Steam"
+    mkdir -p "$(dirname "$paths")"
+    current=$(cat "$paths" 2>/dev/null || echo '{}')
+    jq --arg rt "{{ runtime }}" --arg steam "$steam" '
+      .runtime = [$rt]
+      | .config //= [$steam + "/config"]
+      | .log //= [$steam + "/logs"]
+      | .external_drivers //= null
+      | .jsonid = "vrpathreg"
+      | .version = 1
+    ' <<<"$current" >"$paths.new"
+    mv -f "$paths.new" "$paths"
