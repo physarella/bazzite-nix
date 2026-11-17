@@ -40,10 +40,15 @@ OBSCURA_RPM_BASE=https://linux-pkgs.obscura.com/rpm
 OBSCURA_KEY_FPRS="952095FF926830EFE59875B7878908CE460572A7
 2A5996C7C12D701E78ADC7A27FFA28C5B0D8256F"
 curl -fsSL -o /tmp/obscura.key "${OBSCURA_RPM_BASE}/RPM-GPG-KEY-obscura"
+# gpg needs a writable home even for --show-keys, and /root (/var/roothome)
+# does not exist during the image build.
+GNUPGHOME=$(mktemp -d)
+export GNUPGHOME
 fetched_fprs=$(gpg --show-keys --with-colons /tmp/obscura.key | awk -F: '$1 == "fpr" {print $10}' | sort)
 [ "$fetched_fprs" = "$(sort <<<"$OBSCURA_KEY_FPRS")" ]
 rpm --import /tmp/obscura.key
-rm -f /tmp/obscura.key
+rm -rf /tmp/obscura.key "$GNUPGHOME"
+unset GNUPGHOME
 
 # obscura-repository installs the .repo file itself, so it is bootstrapped from
 # a temporary repo; gpgcheck verifies both packages against the keys above.
