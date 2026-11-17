@@ -29,8 +29,9 @@ nix run home-manager/master -- init --switch
 dropped from the image.
 
 **Only real system packages layered.** `corectrl` (dbus system services and a
-polkit helper) and `goxlr-utility` (udev rules, pinned to an upstream GitHub
-RPM by sha256). Everything previously layered with `rpm-ostree` is either
+polkit helper), `goxlr-utility` (udev rules, pinned to an upstream GitHub
+RPM by sha256) and Obscura VPN (a system service and SELinux module, from
+Obscura's repo with its signing keys pinned by fingerprint). Everything previously layered with `rpm-ostree` is either
 included here or deliberately dropped — `build.sh` records which and why.
 
 **VR: Monado + xrizer.** `monado` and `xr-hardware` from Fedora, with

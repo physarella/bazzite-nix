@@ -28,6 +28,42 @@ rm -f /tmp/goxlr.rpm
 # globally so it starts with the graphical session instead.
 systemctl --global enable goxlr-daemon.service
 
+### Obscura VPN
+#
+# A system service, an SELinux module and a sysusers group: none of which nix
+# can provide. Previously layered with rpm-ostree, which blocks `bootc upgrade`.
+#
+# Packages track Obscura's repo; trust is anchored on the signing keys instead,
+# pinned by fingerprint. If Obscura rotates its key the build fails here --
+# check the new key out of band before re-pinning.
+OBSCURA_RPM_BASE=https://linux-pkgs.obscura.com/rpm
+OBSCURA_KEY_FPRS="952095FF926830EFE59875B7878908CE460572A7
+2A5996C7C12D701E78ADC7A27FFA28C5B0D8256F"
+curl -fsSL -o /tmp/obscura.key "${OBSCURA_RPM_BASE}/RPM-GPG-KEY-obscura"
+fetched_fprs=$(gpg --show-keys --with-colons /tmp/obscura.key | awk -F: '$1 == "fpr" {print $10}' | sort)
+[ "$fetched_fprs" = "$(sort <<<"$OBSCURA_KEY_FPRS")" ]
+rpm --import /tmp/obscura.key
+rm -f /tmp/obscura.key
+
+# obscura-repository installs the .repo file itself, so it is bootstrapped from
+# a temporary repo; gpgcheck verifies both packages against the keys above.
+dnf5 install -y \
+  --repofrompath="obscura-bootstrap,${OBSCURA_RPM_BASE}/x86_64" \
+  --setopt=obscura-bootstrap.gpgcheck=1 \
+  obscura-repository obscura
+
+# The postinstall loads this with `|| true`, so a failure would ship silently.
+semodule -l | grep -qx obscura
+
+# The %post `systemctl start` is a no-op in a container build, and presets are
+# not applied to an existing /etc on upgrade, so enable explicitly.
+systemctl enable obscura.service
+
+# This timer runs `rpm --import`, which fails every time against the read-only
+# rpmdb in /usr. Key updates arrive with each image rebuild instead.
+systemctl disable obscura-package-signing-key-refresh.timer
+systemctl mask obscura-package-signing-key-refresh.service
+
 ### VR: Monado (OpenXR) + xrizer (OpenVR on top of OpenXR)
 #
 # Fedora packages Monado, so the old hand-layered dependency set for a native
