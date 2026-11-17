@@ -90,8 +90,23 @@ vr-monado:
     rm -rf "$xrizer"
     cp -r /usr/lib64/xrizer "$xrizer"
 
+    # A copy with absolute paths, not a symlink: the manifest's paths are
+    # relative ("../../../lib64/..."), and loaders that resolve them from the
+    # symlink's directory end up under $HOME.
+    manifest=/usr/share/openxr/1/openxr_monado.json
+    manifest_dir=$(dirname "$manifest")
+    abs_path() {
+        local p
+        p=$(jq -r "$1" "$manifest")
+        [[ $p == /* ]] || p="$manifest_dir/$p"
+        realpath -ms "$p"
+    }
     mkdir -p "$(dirname "{{ OPENXR_ACTIVE }}")"
-    ln -sfn /usr/share/openxr/1/openxr_monado.json "{{ OPENXR_ACTIVE }}"
+    rm -f "{{ OPENXR_ACTIVE }}"
+    jq --arg lib "$(abs_path .runtime.library_path)" \
+       --arg mnd "$(abs_path .runtime.MND_libmonado_path)" \
+       '.runtime.library_path = $lib | .runtime.MND_libmonado_path = $mnd' \
+       "$manifest" >"{{ OPENXR_ACTIVE }}"
 
     just --justfile "{{ justfile() }}" _vr-set-openvr-runtime "$xrizer"
     # SteamVR rewrites this file to point back at itself whenever it starts,
